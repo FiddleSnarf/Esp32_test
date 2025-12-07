@@ -14,7 +14,8 @@ void HttpServer::start()
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.lru_purge_enable = true;
-    if (httpd_start(&m_server, &config) == ESP_OK) {
+    if (httpd_start(&m_server, &config) == ESP_OK)
+    {
         register_handlers();
         ESP_LOGI(HTTP_LOG_TAG, "HTTP-сервер запущен на порту %d", config.server_port);
     } else {
@@ -25,10 +26,12 @@ void HttpServer::start()
 void HttpServer::register_handlers()
 {
     // Главная страница (/)
-    httpd_uri_t root = {
+    httpd_uri_t root =
+    {
         .uri = "/",
         .method = HTTP_GET,
-        .handler = [](httpd_req_t* req) -> esp_err_t {
+        .handler = [](httpd_req_t* req) -> esp_err_t
+        {
             auto* self = static_cast<HttpServer*>(req->user_ctx);
             std::string html = "<html><body><h1>ESP32 LED Control</h1>"
                                "<p>LED STATE: " + std::string(self->m_led.get() ? "ON" : "OFF") + "</p>"
@@ -42,7 +45,8 @@ void HttpServer::register_handlers()
     httpd_register_uri_handler(m_server, &root);
 
     // Вкл LED (/led/on)
-    httpd_uri_t led_on = {
+    httpd_uri_t led_on =
+    {
         .uri = "/led/on",
         .method = HTTP_GET,
         .handler = [](httpd_req_t* req) -> esp_err_t {
@@ -58,7 +62,8 @@ void HttpServer::register_handlers()
     httpd_register_uri_handler(m_server, &led_on);
 
     // Выкл LED (/led/off)
-    httpd_uri_t led_off = {
+    httpd_uri_t led_off =
+    {
         .uri = "/led/off",
         .method = HTTP_GET,
         .handler = [](httpd_req_t* req) -> esp_err_t {

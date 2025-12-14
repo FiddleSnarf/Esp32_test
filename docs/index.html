@@ -1,24 +1,150 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <title>Управление скоростью</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f0f4f8;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: #007bff;
+            text-align: center;
+        }
+        .slider-container {
+            width: 80%;
+            max-width: 400px;
+            background-color: #ffffff;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        input[type="range"] {
+            width: 100%;
+            margin: 10px 0;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 8px;
+            background: #ddd;
+            border-radius: 5px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 24px;
+            height: 24px;
+            background: #007bff;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 24px;
+            height: 24px;
+            background: #007bff;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        #currentValue {
+            font-size: 18px;
+            margin-top: 10px;
+            color: #555;
+        }
+        .status-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            background-color: #ccc; /* Серый по умолчанию */
+        }
+        .online { background-color: #28a745; } /* Зелёный */
+        .offline { background-color: #dc3545; } /* Красный */
+        .status-text {
+            font-size: 16px;
+        }
+    </style>
 </head>
 <body>
-    <h1>Скорость двигателя</h1>
-    <input type="range" id="speedSlider" min="0" max="100" value="50" step="1">
-    <button id="sendButton">Отправить</button>
+    <div class="slider-container">
+        <h1>Скорость двигателя</h1>
+        <div class="status-container">
+            <div id="statusIndicator" class="status-indicator"></div>
+            <span id="statusText" class="status-text">Проверка статуса...</span>
+        </div>
+        <input type="range" id="speedSlider" min="-100" max="100" value="0" step="1">
+        <div id="currentValue">0%</div>
+    </div>
 
     <script>
-        Telegram.WebApp.ready();  // Инициализация
+        Telegram.WebApp.ready(); // Инициализация
+        Telegram.WebApp.expand(); // Развернуть на весь экран
 
         const slider = document.getElementById('speedSlider');
-        const button = document.getElementById('sendButton');
+        const currentValue = document.getElementById('currentValue');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const statusText = document.getElementById('statusText');
 
-        button.addEventListener('click', () => {
+        let debounceTimer; // Для debounce слайдера
+
+        // Функция обновления статуса
+        async function updateStatus() {
+            try {
+                const response = await fetch('http://your-esp32-ip:80/status', { timeout: 3000 }); // Замените на реальный URL ESP32
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.online) {
+                        statusIndicator.classList.add('online');
+                        statusIndicator.classList.remove('offline');
+                        statusText.textContent = 'Плата онлайн';
+                    } else {
+                        throw new Error(); // Если online: false
+                    }
+                } else {
+                    throw new Error();
+                }
+            } catch (error) {
+                statusIndicator.classList.add('offline');
+                statusIndicator.classList.remove('online');
+                statusText.textContent = 'Плата оффлайн';
+            }
+        }
+
+        // Первоначальная проверка и polling каждые 5 сек
+        updateStatus();
+        setInterval(updateStatus, 5000);
+
+        // Обновление слайдера и отправка
+        slider.addEventListener('input', () => {
             const speed = slider.value;
-            Telegram.WebApp.sendData(JSON.stringify({ action: 'set_speed', value: speed }));  // Отправка данных боту
-            Telegram.WebApp.close();  // Закрыть app после отправки
+            currentValue.textContent = `${speed}%`;
+
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                Telegram.WebApp.sendData(JSON.stringify({ action: 'set_speed', value: speed }));
+            }, 300);
         });
     </script>
 </body>

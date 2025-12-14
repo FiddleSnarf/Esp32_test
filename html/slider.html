@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <title>Управление скоростью</title>
+</head>
+<body>
+    <h1>Скорость двигателя</h1>
+    <input type="range" id="speedSlider" min="0" max="100" value="50" step="1">
+    <button id="sendButton">Отправить</button>
+
+    <script>
+        Telegram.WebApp.ready();  // Инициализация
+
+        const slider = document.getElementById('speedSlider');
+        const button = document.getElementById('sendButton');
+
+        button.addEventListener('click', () => {
+            const speed = slider.value;
+            Telegram.WebApp.sendData(JSON.stringify({ action: 'set_speed', value: speed }));  // Отправка данных боту
+            Telegram.WebApp.close();  // Закрыть app после отправки
+        });
+    </script>
+</body>
+</html>

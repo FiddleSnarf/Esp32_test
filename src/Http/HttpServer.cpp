@@ -2,7 +2,7 @@
 #include <esp_log.h>
 #include <string>
 
-static const char* HTTP_LOG_TAG = "HTTP";
+static const char* HTTP_S_LOG_TAG = "HTTP_SERVER";
 
 HttpServer::HttpServer(LedController& led):
     m_led(led),
@@ -17,9 +17,9 @@ void HttpServer::start()
     if (httpd_start(&m_server, &config) == ESP_OK)
     {
         register_handlers();
-        ESP_LOGI(HTTP_LOG_TAG, "HTTP-сервер запущен на порту %d", config.server_port);
+        ESP_LOGI(HTTP_S_LOG_TAG, "HTTP-сервер запущен на порту %d", config.server_port);
     } else {
-        ESP_LOGE(HTTP_LOG_TAG, "Ошибка запуска HTTP-сервера");
+        ESP_LOGE(HTTP_S_LOG_TAG, "Ошибка запуска HTTP-сервера");
     }
 }
 

@@ -131,19 +131,19 @@ void TelegramBot::pollingTask()
     {
         processUpdates();
 
-        // Ждем 1 секунду между опросами
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        // Ждем 2 секунду между опросами
+        vTaskDelay(pdMS_TO_TICKS(2000));
     }
-    
+
     ESP_LOGI(TG_LOG_TAG, "Polling task completed");
     vTaskDelete(NULL);
 }
 
 void TelegramBot::processUpdates()
 {
-    std::string url = tgUrl + m_token + "/getUpdates?timeout=10";
+    std::string url = tgUrl + m_token + "/getUpdates";
     if (m_last_update_id > 0)
-        url += "&offset=" + std::to_string(m_last_update_id + 1);
+        url += "?offset=" + std::to_string(m_last_update_id + 1);
 
     std::string response = httpGet(url);
 
@@ -164,6 +164,7 @@ void TelegramBot::processUpdates()
 
 bool TelegramBot::parseUpdates(const std::string& json_response)
 {
+    ESP_LOGI(TG_LOG_TAG, "RESPONSE: %s", json_response.c_str());
     cJSON* root = cJSON_Parse(json_response.c_str());
     if (!root)
     {
@@ -192,9 +193,8 @@ bool TelegramBot::parseUpdates(const std::string& json_response)
 
         // Получаем update_id
         cJSON* update_id = cJSON_GetObjectItem(update, "update_id");
-        if (cJSON_IsNumber(update_id)) {
+        if (cJSON_IsNumber(update_id))
             m_last_update_id = update_id->valueint;
-        }
 
         // Получаем сообщение
         cJSON* message = cJSON_GetObjectItem(update, "message");
@@ -290,9 +290,20 @@ bool TelegramBot::sendMessage(const std::string& chat_id, const std::string& tex
     return success;
 }
 
+esp_err_t http_event_handler(esp_http_client_event_t *evt)
+{
+    if (evt->event_id == HTTP_EVENT_ON_DATA) {
+        ESP_LOGI("HTTP", "Received data chunk: %.*s", evt->data_len, (char*)evt->data);
+        // Здесь обрабатывайте тело частями
+    }
+    return ESP_OK;
+}
+
 std::string TelegramBot::httpGet(const std::string& url)
 {
-    esp_http_client_config_t config;
+    ESP_LOGI(TG_LOG_TAG, "HTTP GET url: %s", url.c_str());
+
+    esp_http_client_config_t config = {};
     config.url = url.c_str();
     config.method = HTTP_METHOD_GET;
     config.timeout_ms = 10000;
@@ -305,21 +316,28 @@ std::string TelegramBot::httpGet(const std::string& url)
     esp_http_client_set_header(client, "Content-Type", "application/json");
     esp_http_client_set_header(client, "Accept", "application/json");
 
-    esp_err_t err = esp_http_client_perform(client);
-
+    const esp_err_t err = esp_http_client_open(client, 0);
     std::string response;
     if (err == ESP_OK)
     {
-        int content_len = esp_http_client_get_content_length(client);
-        if (content_len > 0)
-        {
-            response.resize(content_len);
-            esp_http_client_read(client, &response[0], content_len);
-        }
-    } else
-        ESP_LOGE(TG_LOG_TAG, "HTTP GET ошибка: %s", esp_err_to_name(err));
+        const int content_len = esp_http_client_fetch_headers(client);
+        ESP_LOGE(TG_LOG_TAG, "CONTENT_LEN = %d", content_len);
 
-    esp_http_client_cleanup(client);
+        char buffer[3000] = {0};
+        const int read_len = esp_http_client_read_response(client, buffer, sizeof(buffer));
+        ESP_LOGE(TG_LOG_TAG, "READ_LEN = %d", read_len);
+        if (read_len > 0)
+        {
+            const int status_code = esp_http_client_get_status_code(client);
+            ESP_LOGI(TG_LOG_TAG, "HTTP status: %d", status_code);
+
+            response.append(buffer, read_len);
+        }
+    }
+    else
+        ESP_LOGE(TG_LOG_TAG, "HTTP GET error: %s", esp_err_to_name(err));
+
+    esp_http_client_close(client);
     return response;
 }
 

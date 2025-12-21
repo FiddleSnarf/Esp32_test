@@ -20,6 +20,7 @@ extern "C" void app_main()
     //ServoControl servo(GPIO_NUM_15, LEDC_TIMER_0, LEDC_CHANNEL_0);
 
     TelegramBot telegramBot("8250618570:AAFysJ9jy-QQvtifjPC6s4otX-0YPi7-x_w");
+    telegramBot.startPolling();
 
     while (true)
     {

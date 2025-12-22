@@ -64,88 +64,71 @@
         }
         #currentValue {
             font-size: 18px;
-            margin-top: 10px;
+            margin: 10px 0;
             color: #555;
         }
-        .status-container {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 20px;
+        .buttons {
+            margin-top: 20px;
         }
-        .status-indicator {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 8px;
-            background-color: #ccc; /* Серый по умолчанию */
-        }
-        .online { background-color: #28a745; } /* Зелёный */
-        .offline { background-color: #dc3545; } /* Красный */
-        .status-text {
+        .buttons button {
+            width: 45%;
+            padding: 10px;
+            margin: 0 5px;
             font-size: 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .apply-btn {
+            background-color: #28a745;
+            color: white;
+        }
+        .apply-btn:hover {
+            background-color: #218838;
+        }
+        .stop-btn {
+            background-color: #dc3545;
+            color: white;
+        }
+        .stop-btn:hover {
+            background-color: #c82333;
         }
     </style>
 </head>
 <body>
     <div class="slider-container">
         <h1>Скорость двигателя</h1>
-        <div class="status-container">
-            <div id="statusIndicator" class="status-indicator"></div>
-            <span id="statusText" class="status-text">Проверка статуса...</span>
-        </div>
         <input type="range" id="speedSlider" min="-100" max="100" value="0" step="1">
         <div id="currentValue">0%</div>
+
+        <div class="buttons">
+            <button class="apply-btn" onclick="applySpeed()">Apply</button>
+            <button class="stop-btn" onclick="stopMotor()">Stop</button>
+        </div>
     </div>
 
     <script>
-        Telegram.WebApp.ready(); // Инициализация
-        Telegram.WebApp.expand(); // Развернуть на весь экран
+        Telegram.WebApp.ready();
+        Telegram.WebApp.expand();
 
         const slider = document.getElementById('speedSlider');
         const currentValue = document.getElementById('currentValue');
-        const statusIndicator = document.getElementById('statusIndicator');
-        const statusText = document.getElementById('statusText');
 
-        let debounceTimer; // Для debounce слайдера
+        slider.addEventListener('input', () => {
+            currentValue.textContent = `${slider.value}%`;
+        });
 
-        // Функция обновления статуса
-        async function updateStatus() {
-            try {
-                const response = await fetch('http://your-esp32-ip:80/status', { timeout: 3000 }); // Замените на реальный URL ESP32
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.online) {
-                        statusIndicator.classList.add('online');
-                        statusIndicator.classList.remove('offline');
-                        statusText.textContent = 'Плата онлайн';
-                    } else {
-                        throw new Error(); // Если online: false
-                    }
-                } else {
-                    throw new Error();
-                }
-            } catch (error) {
-                statusIndicator.classList.add('offline');
-                statusIndicator.classList.remove('online');
-                statusText.textContent = 'Плата оффлайн';
-            }
+        function applySpeed() {
+            const speed = slider.value;
+            Telegram.WebApp.sendData(JSON.stringify({ action: 'set_speed', value: speed }));
         }
 
-        // Первоначальная проверка и polling каждые 5 сек
-        updateStatus();
-        setInterval(updateStatus, 5000);
-
-        // Обновление слайдера и отправка
-        slider.addEventListener('input', () => {
-            const speed = slider.value;
-            currentValue.textContent = `${speed}%`;
-
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => {
-                Telegram.WebApp.sendData(JSON.stringify({ action: 'set_speed', value: speed }));
-            }, 300);
-        });
+        function stopMotor() {
+            Telegram.WebApp.sendData(JSON.stringify({ action: 'set_speed', value: 0 }));
+            slider.value = 0;
+            currentValue.textContent = '0%';
+        }
     </script>
 </body>
 </html>

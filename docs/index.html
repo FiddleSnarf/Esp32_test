@@ -103,32 +103,49 @@
         <div id="currentValue">0%</div>
 
         <div class="buttons">
-            <button class="apply-btn" onclick="applySpeed()">Apply</button>
             <button class="stop-btn" onclick="stopMotor()">Stop</button>
         </div>
     </div>
 
-    <script>
-        Telegram.WebApp.ready();
-        Telegram.WebApp.expand();
+<script>
+    Telegram.WebApp.ready();
+    Telegram.WebApp.expand();
 
-        const slider = document.getElementById('speedSlider');
-        const currentValue = document.getElementById('currentValue');
+    const slider = document.getElementById('speedSlider');
+    const currentValue = document.getElementById('currentValue');
 
-        slider.addEventListener('input', () => {
-            currentValue.textContent = `${slider.value}%`;
+    // Обновляем отображение
+    slider.addEventListener('input', () => {
+        currentValue.textContent = `${slider.value}%`;
+    });
+
+    // Функция для отправки данных через Main Button
+    function updateMainButton(value) {
+        const data = JSON.stringify({ action: 'set_speed', value: value });
+        Telegram.WebApp.MainButton.setText(`Отправить: ${value}%`);
+        Telegram.WebApp.MainButton.show();
+        Telegram.WebApp.MainButton.onClick(() => {
+            Telegram.WebApp.sendData(data);
+            Telegram.WebApp.close();
         });
+    }
 
-        function applySpeed() {
-            const speed = slider.value;
-            Telegram.WebApp.sendData(JSON.stringify({ action: 'set_speed', value: speed }));
-        }
+    // Изначально кнопка отображает 0%
+    updateMainButton(0);
 
-        function stopMotor() {
-            Telegram.WebApp.sendData(JSON.stringify({ action: 'set_speed', value: 0 }));
-            slider.value = 0;
-            currentValue.textContent = '0%';
-        }
-    </script>
+    // Обновляем кнопку при движении слайдера
+    slider.addEventListener('input', () => {
+        const val = slider.value;
+        currentValue.textContent = `${val}%`;
+        updateMainButton(val);
+    });
+
+    // Кнопка Stop — устанавливает 0
+    function stopMotor() {
+        slider.value = 0;
+        currentValue.textContent = '0%';
+        updateMainButton(0);
+    }
+</script>
 </body>
 </html>

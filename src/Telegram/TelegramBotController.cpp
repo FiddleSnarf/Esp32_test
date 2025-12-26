@@ -50,6 +50,7 @@ TelegramBot::TelegramBot(const std::string& tgToken):
                                      const std::string& text,
                                      const std::string& from)
     {
+        ESP_LOGI(TG_LOG_TAG, "START CMD: chat_id = %s, text  = %s, from = %s", chat_id.c_str(), text.c_str(), from.c_str());
         handleStart(chat_id, from);
     });
 
@@ -253,6 +254,7 @@ void TelegramBot::processMessage(const BotMessage& msg)
         it->second(msg.chat_id, msg.text, msg.from);
     else
     {
+        ESP_LOGI(TG_LOG_TAG, "HANDLER NOT FOUND");
         // Проверяем команды с параметрами (/servo 90)
         size_t space_pos = msg.text.find(' ');
         if (space_pos != std::string::npos)
@@ -274,9 +276,10 @@ void TelegramBot::processMessage(const BotMessage& msg)
 
 bool TelegramBot::sendMessage(const std::string& chat_id, const std::string& text)
 {
-    std::string url = tgUrl + m_token + "/sendMessage";
-    std::string data = "chat_id=" + chat_id + "&text=" + urlEncode(text) + "&parse_mode=HTML";
+    const std::string url = tgUrl + m_token + "/sendMessage";
+    const std::string data = "chat_id=" + chat_id + "&text=" + urlEncode(text) + "&parse_mode=HTML";
 
+    ESP_LOGI(TG_LOG_TAG, "SEND MSG: url = %s, data = %s", url.c_str(), data.c_str());
     std::string response = httpPost(url, data);
 
     cJSON* root = cJSON_Parse(response.c_str());
@@ -288,15 +291,6 @@ bool TelegramBot::sendMessage(const std::string& chat_id, const std::string& tex
 
     cJSON_Delete(root);
     return success;
-}
-
-esp_err_t http_event_handler(esp_http_client_event_t *evt)
-{
-    if (evt->event_id == HTTP_EVENT_ON_DATA) {
-        ESP_LOGI("HTTP", "Received data chunk: %.*s", evt->data_len, (char*)evt->data);
-        // Здесь обрабатывайте тело частями
-    }
-    return ESP_OK;
 }
 
 std::string TelegramBot::httpGet(const std::string& url)
@@ -323,6 +317,7 @@ std::string TelegramBot::httpGet(const std::string& url)
         const int content_len = esp_http_client_fetch_headers(client);
         ESP_LOGE(TG_LOG_TAG, "CONTENT_LEN = %d", content_len);
 
+        // TODO
         char buffer[3000] = {0};
         const int read_len = esp_http_client_read_response(client, buffer, sizeof(buffer));
         ESP_LOGE(TG_LOG_TAG, "READ_LEN = %d", read_len);
@@ -389,6 +384,7 @@ void TelegramBot::handleStart(const std::string& chat_id, const std::string& fro
     welcome += "• /servo sweep - Плавное перемещение сервопривода\n";
     welcome += "• /servo center - Центрировать сервопривод\n";
 
+    ESP_LOGI(TG_LOG_TAG, "START CMD HANDLE");
     sendMessage(chat_id, welcome);
 }
 

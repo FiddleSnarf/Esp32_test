@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <title>Управление скоростью</title>
     <style>
         body {
@@ -108,44 +107,63 @@
     </div>
 
 <script>
-    Telegram.WebApp.ready();
-    Telegram.WebApp.expand();
+    // Подключаемся к WebSocket
+    const ws = new WebSocket(`ws://${window.location.host}/ws`);
 
     const slider = document.getElementById('speedSlider');
     const currentValue = document.getElementById('currentValue');
 
-    // Обновляем отображение
-    slider.addEventListener('input', () => {
-        currentValue.textContent = `${slider.value}%`;
-    });
+    // Обработка входящих сообщений (опционально — для подтверждения/ошибок)
+    ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.error) {
+            console.error("Ошибка:", msg.error);
+            alert("Ошибка: " + msg.error);
+        }
+        // Можно обновлять индикатор реальной скорости здесь:
+        // if (msg.real_speed !== undefined) { ... }
+    };
 
-    // Функция для отправки данных через Main Button
-    function updateMainButton(value) {
-        const data = JSON.stringify({ action: 'set_speed', value: value });
-        Telegram.WebApp.MainButton.setText(`Отправить: ${value}%`);
-        Telegram.WebApp.MainButton.show();
-        Telegram.WebApp.MainButton.onClick(() => {
-            Telegram.WebApp.sendData(data);
-            Telegram.WebApp.close();
-        });
+    ws.onopen = () => {
+        console.log("WebSocket подключён");
+        sendSpeed(0); // инициализация
+    };
+
+    ws.onerror = (error) => {
+        console.error("WebSocket ошибка:", error);
+        alert("Ошибка подключения к серверу!");
+    };
+
+    ws.onclose = () => {
+        console.log("WebSocket закрыт");
+    };
+
+    function sendSpeed(value) {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ action: "set_speed", value: value }));
+        }
     }
 
-    // Изначально кнопка отображает 0%
-    updateMainButton(0);
-
-    // Обновляем кнопку при движении слайдера
+    // Слайдер
     slider.addEventListener('input', () => {
         const val = slider.value;
         currentValue.textContent = `${val}%`;
-        updateMainButton(val);
+        sendSpeed(val);
     });
 
-    // Кнопка Stop — устанавливает 0
+    // Кнопка Stop
     function stopMotor() {
         slider.value = 0;
         currentValue.textContent = '0%';
-        updateMainButton(0);
+        sendSpeed(0);
     }
+
+    // Обработка закрытия вкладки — аккуратное завершение
+    window.addEventListener('beforeunload', () => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.close();
+        }
+    });
 </script>
 </body>
 </html>

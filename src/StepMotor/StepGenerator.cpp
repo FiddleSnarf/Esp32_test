@@ -1,188 +1,148 @@
-/*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-
-#include "esp_check.h"
 #include "StepGenerator.h"
+#include <esp_log.h>
+#include <cmath>
+#include <algorithm>
 
-static const char *TAG = "stepper_motor_encoder";
-
-static float convert_to_smooth_freq(uint32_t freq1, uint32_t freq2, uint32_t freqx)
+namespace
 {
-    float normalize_x = ((float)(freqx - freq1)) / (freq2 - freq1);
-    // third-order "smoothstep" function: https://en.wikipedia.org/wiki/Smoothstep
-    float smooth_x = normalize_x * normalize_x * (3 - 2 * normalize_x);
-    return smooth_x * (freq2 - freq1) + freq1;
+    const char* TAG = "StepGenerator";
+    const uint32_t PULSE_WIDTH_Us = 2u;                                 // Длительность импульса фиксированная = 2 мкс
+    const uint32_t MIN_TIMER_RESOLUTION = 1'000'000 / PULSE_WIDTH_Us;   // Минимальное требуемое разрешение таймера для принятой ширины импульса, Гц
 }
 
-typedef struct {
-    rmt_encoder_t base;
-    rmt_encoder_handle_t copy_encoder;
-    uint32_t sample_points;
-    struct {
-        uint32_t is_accel_curve: 1;
-    } flags;
-    rmt_symbol_word_t curve_table[];
-} rmt_stepper_curve_encoder_t;
-
-RMT_ENCODER_FUNC_ATTR
-static size_t rmt_encode_stepper_motor_curve(rmt_encoder_t *encoder, rmt_channel_handle_t channel, const void *primary_data, size_t data_size, rmt_encode_state_t *ret_state)
+StepGenerator::StepGenerator(gpio_num_t stepPin, uint32_t timerResolutionHz):
+    m_timerResolutionHz(std::clamp(timerResolutionHz, MIN_TIMER_RESOLUTION, MAX_TIMER_RESOLUTION)),
+    m_pulseWidthTick(std::round(static_cast<double>(PULSE_WIDTH_Us) * m_timerResolutionHz / 1'000'000)),
+    m_minFreq(m_timerResolutionHz / 65535),                 // т.к. таймер использует 16ти битный счетчик
+    m_maxFreq(m_timerResolutionHz / (m_pulseWidthTick + 1)) // Максимальную частоту рассчитываем так чтобы были возможны импульсы продолжительностью PULSE_WIDTH_Us
 {
-    rmt_stepper_curve_encoder_t *motor_encoder = __containerof(encoder, rmt_stepper_curve_encoder_t, base);
-    rmt_encoder_handle_t copy_encoder = motor_encoder->copy_encoder;
-    rmt_encode_state_t session_state = RMT_ENCODING_RESET;
-    uint32_t points_num = *(uint32_t *)primary_data;
-    size_t encoded_symbols = 0;
-    if (motor_encoder->flags.is_accel_curve) {
-        encoded_symbols = copy_encoder->encode(copy_encoder, channel, &motor_encoder->curve_table[0],
-                                               points_num * sizeof(rmt_symbol_word_t), &session_state);
-    } else {
-        encoded_symbols = copy_encoder->encode(copy_encoder, channel, &motor_encoder->curve_table[0] + motor_encoder->sample_points - points_num,
-                                               points_num * sizeof(rmt_symbol_word_t), &session_state);
-    }
-    *ret_state = session_state;
-    return encoded_symbols;
-}
+    if (m_timerResolutionHz != timerResolutionHz)
+        ESP_LOGW(TAG, "Timer resolution to be changed = %d", m_timerResolutionHz);
 
-static esp_err_t rmt_del_stepper_motor_curve_encoder(rmt_encoder_t *encoder)
-{
-    rmt_stepper_curve_encoder_t *motor_encoder = __containerof(encoder, rmt_stepper_curve_encoder_t, base);
-    rmt_del_encoder(motor_encoder->copy_encoder);
-    free(motor_encoder);
-    return ESP_OK;
-}
-
-RMT_ENCODER_FUNC_ATTR
-static esp_err_t rmt_reset_stepper_motor_curve_encoder(rmt_encoder_t *encoder)
-{
-    rmt_stepper_curve_encoder_t *motor_encoder = __containerof(encoder, rmt_stepper_curve_encoder_t, base);
-    rmt_encoder_reset(motor_encoder->copy_encoder);
-    return ESP_OK;
-}
-
-esp_err_t rmt_new_stepper_motor_curve_encoder(const stepper_motor_curve_encoder_config_t *config, rmt_encoder_handle_t *ret_encoder)
-{
-    esp_err_t ret = ESP_OK;
-    rmt_stepper_curve_encoder_t *step_encoder = NULL;
-    float smooth_freq;
-    uint32_t symbol_duration;
-    //ESP_GOTO_ON_FALSE(config && ret_encoder, ESP_ERR_INVALID_ARG, err, TAG, "invalid arguments");
-    //ESP_GOTO_ON_FALSE(config->sample_points, ESP_ERR_INVALID_ARG, err, TAG, "sample points number can't be zero");
-    //ESP_GOTO_ON_FALSE(config->start_freq_hz != config->end_freq_hz, ESP_ERR_INVALID_ARG, err, TAG, "start freq can't equal to end freq");
-    auto step_encoder_raw = rmt_alloc_encoder_mem(sizeof(rmt_stepper_curve_encoder_t) + config->sample_points * sizeof(rmt_symbol_word_t));
-    step_encoder = static_cast<rmt_stepper_curve_encoder_t*>(step_encoder_raw);
-    //ESP_GOTO_ON_FALSE(step_encoder, ESP_ERR_NO_MEM, err, TAG, "no mem for stepper curve encoder");
-    rmt_copy_encoder_config_t copy_encoder_config = {};
-    rmt_new_copy_encoder(&copy_encoder_config, &step_encoder->copy_encoder);
-    //ESP_GOTO_ON_ERROR(rmt_new_copy_encoder(&copy_encoder_config, &step_encoder->copy_encoder), err, TAG, "create copy encoder failed");
-    bool is_accel_curve = config->start_freq_hz < config->end_freq_hz;
-
-    // prepare the curve table, in RMT symbol format
-    uint32_t curve_step = 0;
-    if (is_accel_curve) {
-        curve_step = (config->end_freq_hz - config->start_freq_hz) / (config->sample_points - 1);
-        for (uint32_t i = 0; i < config->sample_points; i++) {
-            smooth_freq = convert_to_smooth_freq(config->start_freq_hz, config->end_freq_hz, config->start_freq_hz + curve_step * i);
-            symbol_duration = config->resolution / smooth_freq / 2;
-            step_encoder->curve_table[i].level0 = 0;
-            step_encoder->curve_table[i].duration0 = symbol_duration;
-            step_encoder->curve_table[i].level1 = 1;
-            step_encoder->curve_table[i].duration1 = symbol_duration;
-        }
-    } else {
-        curve_step = (config->start_freq_hz - config->end_freq_hz) / (config->sample_points - 1);
-        for (uint32_t i = 0; i < config->sample_points; i++) {
-            smooth_freq = convert_to_smooth_freq(config->end_freq_hz, config->start_freq_hz, config->end_freq_hz + curve_step * i);
-            symbol_duration = config->resolution / smooth_freq / 2;
-            step_encoder->curve_table[config->sample_points - i - 1].level0 = 0;
-            step_encoder->curve_table[config->sample_points - i - 1].duration0 = symbol_duration;
-            step_encoder->curve_table[config->sample_points - i - 1].level1 = 1;
-            step_encoder->curve_table[config->sample_points - i - 1].duration1 = symbol_duration;
-        }
-    }
-    ESP_GOTO_ON_FALSE(curve_step > 0, ESP_ERR_INVALID_ARG, err, TAG, "|end_freq_hz - start_freq_hz| can't be smaller than sample_points");
-
-    step_encoder->sample_points = config->sample_points;
-    step_encoder->flags.is_accel_curve = is_accel_curve;
-    step_encoder->base.del = rmt_del_stepper_motor_curve_encoder;
-    step_encoder->base.encode = rmt_encode_stepper_motor_curve;
-    step_encoder->base.reset = rmt_reset_stepper_motor_curve_encoder;
-    *ret_encoder = &(step_encoder->base);
-    return ESP_OK;
-err:
-    if (step_encoder) {
-        if (step_encoder->copy_encoder) {
-            rmt_del_encoder(step_encoder->copy_encoder);
-        }
-        free(step_encoder);
-    }
-    return ret;
-}
-
-typedef struct {
-    rmt_encoder_t base;
-    rmt_encoder_handle_t copy_encoder;
-    uint32_t resolution;
-} rmt_stepper_uniform_encoder_t;
-
-static size_t rmt_encode_stepper_motor_uniform(rmt_encoder_t *encoder, rmt_channel_handle_t channel, const void *primary_data, size_t data_size, rmt_encode_state_t *ret_state)
-{
-    rmt_stepper_uniform_encoder_t *motor_encoder = __containerof(encoder, rmt_stepper_uniform_encoder_t, base);
-    rmt_encoder_handle_t copy_encoder = motor_encoder->copy_encoder;
-    rmt_encode_state_t session_state = RMT_ENCODING_RESET;
-    uint32_t target_freq_hz = *(uint32_t *)primary_data;
-    uint16_t symbol_duration = motor_encoder->resolution / target_freq_hz / 2;
-    rmt_symbol_word_t freq_sample = {
-        .duration0 = symbol_duration,
-        .level0 = 0,
-        .duration1 = symbol_duration,
-        .level1 = 1,
+    // Создание таймера
+    const uint32_t defaultTimerPeriodTick = calcPeriodTick(m_minFreq);
+    mcpwm_timer_config_t timer_config = {
+        .group_id = 0,
+        .clk_src = MCPWM_TIMER_CLK_SRC_DEFAULT,
+        .resolution_hz = m_timerResolutionHz,
+        .count_mode = MCPWM_TIMER_COUNT_MODE_UP,
+        .period_ticks = defaultTimerPeriodTick,
+        .intr_priority = 0,
+        .flags = {},
     };
-    size_t encoded_symbols = copy_encoder->encode(copy_encoder, channel, &freq_sample, sizeof(freq_sample), &session_state);
-    *ret_state = session_state;
-    return encoded_symbols;
+    ESP_ERROR_CHECK(mcpwm_new_timer(&timer_config, &m_stepperTimer));
+
+    // Создание оператора
+    mcpwm_operator_config_t oper_config = {
+        .group_id = 0,
+        .intr_priority = 0,
+        .flags = {},
+    };
+    ESP_ERROR_CHECK(mcpwm_new_operator(&oper_config, &m_stepperOper));
+    ESP_ERROR_CHECK(mcpwm_operator_connect_timer(m_stepperOper, m_stepperTimer));
+
+    // Создание компаратора
+    mcpwm_comparator_config_t cmp_config = {
+        .intr_priority = 0,
+        .flags = {
+            .update_cmp_on_tez = true,   // Обновлять при счете = 0
+            .update_cmp_on_tep = false,
+            .update_cmp_on_sync = false,
+        },
+    };
+    ESP_ERROR_CHECK(mcpwm_new_comparator(m_stepperOper, &cmp_config, &m_stepperCmp));
+
+    // Создание генератора
+    mcpwm_generator_config_t gen_config = {
+        .gen_gpio_num = stepPin,
+        .flags = {},
+    };
+    ESP_ERROR_CHECK(mcpwm_new_generator(m_stepperOper, &gen_config, &m_stepperGen));
+
+    // Настройка логики генератора
+    // Создаем импульс: низкий уровень в начале периода, высокий по достижении значения компаратора
+    mcpwm_generator_set_action_on_timer_event(m_stepperGen, MCPWM_GEN_TIMER_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, MCPWM_TIMER_EVENT_EMPTY, MCPWM_GEN_ACTION_LOW));
+    mcpwm_generator_set_action_on_compare_event(m_stepperGen, MCPWM_GEN_COMPARE_EVENT_ACTION(MCPWM_TIMER_DIRECTION_UP, m_stepperCmp, MCPWM_GEN_ACTION_HIGH));
+
+    // Установка скважности
+    mcpwm_comparator_set_compare_value(m_stepperCmp, m_pulseWidthTick);
+
+    // Запуск таймера
+    mcpwm_timer_enable(m_stepperTimer);
 }
 
-static esp_err_t rmt_del_stepper_motor_uniform_encoder(rmt_encoder_t *encoder)
+StepGenerator::~StepGenerator()
 {
-    rmt_stepper_uniform_encoder_t *motor_encoder = __containerof(encoder, rmt_stepper_uniform_encoder_t, base);
-    rmt_del_encoder(motor_encoder->copy_encoder);
-    free(motor_encoder);
-    return ESP_OK;
+    stop();
+
+    // Сначала выключаем таймер
+    if (m_stepperTimer)
+        mcpwm_timer_disable(m_stepperTimer);
+
+
+    // Удаляем в порядке обратном созданию
+
+    if (m_stepperGen)
+        mcpwm_del_generator(m_stepperGen);
+
+    if (m_stepperCmp)
+        mcpwm_del_comparator(m_stepperCmp);
+
+    if (m_stepperOper)
+        mcpwm_del_operator(m_stepperOper);
+
+    if (m_stepperTimer)
+        mcpwm_del_timer(m_stepperTimer);
 }
 
-static esp_err_t rmt_reset_stepper_motor_uniform(rmt_encoder_t *encoder)
+bool StepGenerator::setFreq(uint32_t pulsesFreq)
 {
-    rmt_stepper_uniform_encoder_t *motor_encoder = __containerof(encoder, rmt_stepper_uniform_encoder_t, base);
-    rmt_encoder_reset(motor_encoder->copy_encoder);
-    return ESP_OK;
-}
-
-esp_err_t rmt_new_stepper_motor_uniform_encoder(const stepper_motor_uniform_encoder_config_t *config, rmt_encoder_handle_t *ret_encoder)
-{
-    esp_err_t ret = ESP_OK;
-    rmt_stepper_uniform_encoder_t *step_encoder = NULL;
-    //ESP_GOTO_ON_FALSE(config && ret_encoder, ESP_ERR_INVALID_ARG, err, TAG, "invalid arguments");
-    auto step_encoder_raw = rmt_alloc_encoder_mem(sizeof(rmt_stepper_uniform_encoder_t));
-    step_encoder = static_cast<rmt_stepper_uniform_encoder_t*>(step_encoder_raw);
-    //ESP_GOTO_ON_FALSE(step_encoder, ESP_ERR_NO_MEM, err, TAG, "no mem for stepper uniform encoder");
-    rmt_copy_encoder_config_t copy_encoder_config = {};
-    ESP_GOTO_ON_ERROR(rmt_new_copy_encoder(&copy_encoder_config, &step_encoder->copy_encoder), err, TAG, "create copy encoder failed");
-
-    step_encoder->resolution = config->resolution;
-    step_encoder->base.del = rmt_del_stepper_motor_uniform_encoder;
-    step_encoder->base.encode = rmt_encode_stepper_motor_uniform;
-    step_encoder->base.reset = rmt_reset_stepper_motor_uniform;
-    *ret_encoder = &(step_encoder->base);
-    return ESP_OK;
-err:
-    if (step_encoder) {
-        if (step_encoder->copy_encoder) {
-            rmt_del_encoder(step_encoder->copy_encoder);
-        }
-        free(step_encoder);
+    if (pulsesFreq < m_minFreq || pulsesFreq > m_maxFreq)
+    {
+        ESP_LOGW(TAG, "FREQ OUT OF RANGE = %d", pulsesFreq);
+        return false;
     }
-    return ret;
+
+    if (pulsesFreq == 0)
+        stop();
+    else
+    {
+        const uint32_t periodTicks = calcPeriodTick(pulsesFreq);
+
+        //ESP_LOGI(TAG, "FREQ = %d, PERIOD = %d", pulsesFreq, periodTicks);
+
+        // Меняем период
+        mcpwm_timer_set_period(m_stepperTimer, periodTicks);
+
+        if (!m_isStarted)
+        {
+            ESP_ERROR_CHECK(mcpwm_timer_start_stop(m_stepperTimer, MCPWM_TIMER_START_NO_STOP));
+            m_isStarted = true;
+            //ESP_LOGI(TAG, "Pulses start");
+        }
+    }
+
+    return true;
+}
+
+void StepGenerator::stop()
+{
+    ESP_ERROR_CHECK(mcpwm_timer_start_stop(m_stepperTimer, MCPWM_TIMER_STOP_FULL));
+    m_isStarted = false;
+    //ESP_LOGI(TAG, "Pulses stop");
+}
+
+uint32_t StepGenerator::getMinFreq() const
+{
+    return m_minFreq;
+}
+
+uint32_t StepGenerator::getMaxFreq() const
+{
+    return m_maxFreq;
+}
+
+uint32_t StepGenerator::calcPeriodTick(uint32_t pulsesFreq) const
+{
+    return std::round(static_cast<double>(m_timerResolutionHz) / pulsesFreq);
 }

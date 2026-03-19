@@ -1,58 +1,40 @@
-/*
- * SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: Apache-2.0
- */
 #pragma once
 
-#include <stdint.h>
-#include "driver/rmt_encoder.h"
+#include "driver/gpio.h"
+#include "driver/mcpwm_prelude.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+class StepGenerator
+{
+    static const uint32_t MAX_TIMER_RESOLUTION = 1'000'000;
 
-/**
- * @brief Stepper motor curve encoder configuration
- */
-typedef struct {
-    uint32_t resolution;    // Encoder resolution, in Hz
-    uint32_t sample_points; // Sample points used for deceleration phase. Note: |end_freq_hz - start_freq_hz| >= sample_points
-    uint32_t start_freq_hz; // Start frequency on the curve, in Hz
-    uint32_t end_freq_hz;   // End frequency on the curve, in Hz
-} stepper_motor_curve_encoder_config_t;
+public:
+    /**
+     * @brief Конструктор
+     * @param stepPin: номер пина STEP
+     * @param timerResolutionHz: разрешение таймера, Гц
+     */
+    StepGenerator(gpio_num_t stepPin, uint32_t timerResolutionHz = MAX_TIMER_RESOLUTION);
+    ~StepGenerator();
 
-/**
- * @brief Stepper motor uniform encoder configuration
- */
-typedef struct {
-    uint32_t resolution; // Encoder resolution, in Hz
-} stepper_motor_uniform_encoder_config_t;
+    bool setFreq(uint32_t pulsesFreq);
+    void stop();
 
-/**
- * @brief Create stepper motor curve encoder
- *
- * @param[in] config Encoder configuration
- * @param[out] ret_encoder Returned encoder handle
- * @return
- *      - ESP_ERR_INVALID_ARG for any invalid arguments
- *      - ESP_ERR_NO_MEM out of memory when creating step motor encoder
- *      - ESP_OK if creating encoder successfully
- */
-esp_err_t rmt_new_stepper_motor_curve_encoder(const stepper_motor_curve_encoder_config_t *config, rmt_encoder_handle_t *ret_encoder);
+    uint32_t getMinFreq() const;
+    uint32_t getMaxFreq() const;
 
-/**
- * @brief Create RMT encoder for encoding step motor uniform phase into RMT symbols
- *
- * @param[in] config Encoder configuration
- * @param[out] ret_encoder Returned encoder handle
- * @return
- *      - ESP_ERR_INVALID_ARG for any invalid arguments
- *      - ESP_ERR_NO_MEM out of memory when creating step motor encoder
- *      - ESP_OK if creating encoder successfully
- */
-esp_err_t rmt_new_stepper_motor_uniform_encoder(const stepper_motor_uniform_encoder_config_t *config, rmt_encoder_handle_t *ret_encoder);
+private:
+    /* Метод для расчета периода в тиках таймера */
+    uint32_t calcPeriodTick(uint32_t pulsesFreq) const;
 
-#ifdef __cplusplus
-}
-#endif
+private:
+    mcpwm_timer_handle_t m_stepperTimer = nullptr;
+    mcpwm_oper_handle_t m_stepperOper = nullptr;
+    mcpwm_cmpr_handle_t m_stepperCmp = nullptr;
+    mcpwm_gen_handle_t m_stepperGen = nullptr;
+
+    const uint32_t m_timerResolutionHz = 0;             // Разрешение таймера, Гц
+    const uint32_t m_pulseWidthTick = 0;                // Продолжительность импульса, тик
+    const uint32_t m_minFreq = 1;                       // Минимальная частота, Гц
+    const uint32_t m_maxFreq = 500'000;                 // Максимальная частота, Гц
+    bool m_isStarted = false;                           // Состояние выдачи импульсов
+};

@@ -1,12 +1,12 @@
 #pragma once
 
 #include <esp_http_server.h>
-#include "./Helpers/LedController.h"
+#include "./Helpers/RgbLedController.h"
 
 class HttpServer
 {
 public:
-    HttpServer(LedController& led);
+    HttpServer(RgbLedControllerPtr led);
 
     void start();
 
@@ -14,6 +14,6 @@ private:
     void register_handlers();
 
 private:
-    LedController& m_led;
+    RgbLedControllerPtr m_led;
     httpd_handle_t m_server;
 };

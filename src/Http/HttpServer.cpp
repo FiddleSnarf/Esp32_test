@@ -4,7 +4,7 @@
 
 static const char* HTTP_S_LOG_TAG = "HTTP_SERVER";
 
-HttpServer::HttpServer(LedController& led):
+HttpServer::HttpServer(RgbLedControllerPtr led):
     m_led(led),
     m_server(nullptr)
 {
@@ -49,9 +49,10 @@ void HttpServer::register_handlers()
     {
         .uri = "/led/on",
         .method = HTTP_GET,
-        .handler = [](httpd_req_t* req) -> esp_err_t {
+        .handler = [](httpd_req_t* req) -> esp_err_t
+        {
             auto* self = static_cast<HttpServer*>(req->user_ctx);
-            self->m_led.set(true);
+            //self->m_led.set(true);
             httpd_resp_set_status(req, "302 Found");
             httpd_resp_set_hdr(req, "Location", "/");
             httpd_resp_send(req, nullptr, 0);
@@ -66,9 +67,10 @@ void HttpServer::register_handlers()
     {
         .uri = "/led/off",
         .method = HTTP_GET,
-        .handler = [](httpd_req_t* req) -> esp_err_t {
+        .handler = [](httpd_req_t* req) -> esp_err_t
+        {
             auto* self = static_cast<HttpServer*>(req->user_ctx);
-            self->m_led.set(false);
+            //self->m_led.set(false);
             httpd_resp_set_status(req, "302 Found");
             httpd_resp_set_hdr(req, "Location", "/");
             httpd_resp_send(req, nullptr, 0);

@@ -2,9 +2,7 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 
-#include "led_strip.h"
 #include "driver/mcpwm_prelude.h"
-
 #include <cmath>
 
 
@@ -128,42 +126,6 @@ void stepper_stop()
 
 extern "C" void app_main()
 {
-    // // RGB Светодиод
-    // led_strip_handle_t led_strip;
-    // /* Конфигурация ленты (общая) */
-    // led_strip_config_t strip_config = {
-    //     .strip_gpio_num = 48,
-    //     .max_leds = 1,
-    //     .led_model = LED_MODEL_WS2812,
-    //     .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,
-    //     .flags = {},
-    // };
-    // /* Конфигурация RMT (аппаратный контроллер) */
-    // led_strip_rmt_config_t rmt_config = {
-    //     .clk_src = RMT_CLK_SRC_DEFAULT,
-    //     .resolution_hz = 10000000, // 10MHz
-    //     .mem_block_symbols = 64,
-    //     .flags = {},
-    // };
-    // /* Создание устройства */
-    // ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
-    // /* Очистка ленты перед началом (выключение) */
-    // ESP_ERROR_CHECK(led_strip_clear(led_strip));
-
-    // uint16_t h = 0;
-    // uint8_t s = 255;
-    // uint8_t v = 10;
-
-    // while (1)
-    // {
-    //     led_strip_set_pixel_hsv(led_strip, 0, h, s, v);
-    //     led_strip_refresh(led_strip);
-    //     vTaskDelay(pdMS_TO_TICKS(10));
-    //     ++h;
-    //     if (h > 360)
-    //         h = 0;
-    // }
-
     float speed = 100;
     stepper_motor_init();
     stepper_set_speed(speed);

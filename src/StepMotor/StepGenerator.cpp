@@ -5,8 +5,8 @@
 
 namespace
 {
-    const char* TAG = "StepGenerator";
-    const uint32_t PULSE_WIDTH_Us = 2u;                                 // Длительность импульса фиксированная = 2 мкс
+    const char* LOG = "StepGenerator";                                  // Канал лога
+    const uint32_t PULSE_WIDTH_Us = 4u;                                 // Длительность импульса фиксированная = 4 мкс
     const uint32_t MIN_TIMER_RESOLUTION = 1'000'000 / PULSE_WIDTH_Us;   // Минимальное требуемое разрешение таймера для принятой ширины импульса, Гц
 }
 
@@ -17,12 +17,12 @@ StepGenerator::StepGenerator(gpio_num_t stepPin, uint32_t timerResolutionHz):
     m_maxFreq(m_timerResolutionHz / (m_pulseWidthTick + 1)) // Максимальную частоту рассчитываем так чтобы были возможны импульсы продолжительностью PULSE_WIDTH_Us
 {
     if (m_timerResolutionHz != timerResolutionHz)
-        ESP_LOGW(TAG, "Timer resolution to be changed = %d", m_timerResolutionHz);
+        ESP_LOGW(LOG, "Timer resolution to be changed = %d", m_timerResolutionHz);
 
     // Создание таймера
     const uint32_t defaultTimerPeriodTick = calcPeriodTick(m_minFreq);
     mcpwm_timer_config_t timer_config = {
-        .group_id = 0,
+        .group_id = 0,  // TODO ИИ говорит что можно создать 3 тамера на группу, иначе ESP_ERR_NOT_FOUND
         .clk_src = MCPWM_TIMER_CLK_SRC_DEFAULT,
         .resolution_hz = m_timerResolutionHz,
         .count_mode = MCPWM_TIMER_COUNT_MODE_UP,
@@ -34,7 +34,7 @@ StepGenerator::StepGenerator(gpio_num_t stepPin, uint32_t timerResolutionHz):
 
     // Создание оператора
     mcpwm_operator_config_t oper_config = {
-        .group_id = 0,
+        .group_id = 0,  // TODO ИИ говорит что можно создать 3 оператора на группу, иначе ESP_ERR_NOT_FOUND
         .intr_priority = 0,
         .flags = {},
     };
@@ -79,9 +79,7 @@ StepGenerator::~StepGenerator()
     if (m_stepperTimer)
         mcpwm_timer_disable(m_stepperTimer);
 
-
     // Удаляем в порядке обратном созданию
-
     if (m_stepperGen)
         mcpwm_del_generator(m_stepperGen);
 
@@ -99,7 +97,7 @@ bool StepGenerator::setFreq(uint32_t pulsesFreq)
 {
     if (pulsesFreq < m_minFreq || pulsesFreq > m_maxFreq)
     {
-        ESP_LOGW(TAG, "FREQ OUT OF RANGE = %d", pulsesFreq);
+        ESP_LOGW(LOG, "FREQ OUT OF RANGE = %d", pulsesFreq);
         return false;
     }
 
@@ -109,7 +107,7 @@ bool StepGenerator::setFreq(uint32_t pulsesFreq)
     {
         const uint32_t periodTicks = calcPeriodTick(pulsesFreq);
 
-        //ESP_LOGI(TAG, "FREQ = %d, PERIOD = %d", pulsesFreq, periodTicks);
+        //ESP_LOGI(LOG, "FREQ = %d, PERIOD = %d", pulsesFreq, periodTicks);
 
         // Меняем период
         mcpwm_timer_set_period(m_stepperTimer, periodTicks);
@@ -118,7 +116,7 @@ bool StepGenerator::setFreq(uint32_t pulsesFreq)
         {
             ESP_ERROR_CHECK(mcpwm_timer_start_stop(m_stepperTimer, MCPWM_TIMER_START_NO_STOP));
             m_isStarted = true;
-            //ESP_LOGI(TAG, "Pulses start");
+            //ESP_LOGI(LOG, "Pulses start");
         }
     }
 
@@ -140,6 +138,11 @@ uint32_t StepGenerator::getMinFreq() const
 uint32_t StepGenerator::getMaxFreq() const
 {
     return m_maxFreq;
+}
+
+bool StepGenerator::isStarted() const
+{
+    return m_isStarted;
 }
 
 uint32_t StepGenerator::calcPeriodTick(uint32_t pulsesFreq) const

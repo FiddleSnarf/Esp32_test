@@ -16,11 +16,34 @@ public:
     StepGenerator(gpio_num_t stepPin, uint32_t timerResolutionHz = MAX_TIMER_RESOLUTION);
     ~StepGenerator();
 
+    /**
+     * @brief Метод для установки частоты ипульсов (может быть применен "на лету")
+     * @param pulsesFreq: Частота, Гц
+     */
     bool setFreq(uint32_t pulsesFreq);
+
+    /**
+     * @brief Метод для остановки выдачи импульсов
+     */
     void stop();
 
+    /**
+     * @brief Метод для получения минимальной допустимой частоты
+     * @return Минимальная частота, Гц
+     */
     uint32_t getMinFreq() const;
+
+    /**
+     * @brief Метод для получения максимальной допустимой частоты
+     * @return Максимальная частота, Гц
+     */
     uint32_t getMaxFreq() const;
+
+    /**
+     * @brief Метод для получения состояния выдачи импульсов
+     * @return Состояние
+     */
+    bool isStarted() const;
 
 private:
     /* Метод для расчета периода в тиках таймера */
@@ -34,7 +57,7 @@ private:
 
     const uint32_t m_timerResolutionHz = 0;             // Разрешение таймера, Гц
     const uint32_t m_pulseWidthTick = 0;                // Продолжительность импульса, тик
-    const uint32_t m_minFreq = 1;                       // Минимальная частота, Гц
-    const uint32_t m_maxFreq = 500'000;                 // Максимальная частота, Гц
+    const uint32_t m_minFreq = 20;                      // Минимальная частота, Гц
+    const uint32_t m_maxFreq = 100'000;                 // Максимальная частота, Гц
     bool m_isStarted = false;                           // Состояние выдачи импульсов
 };
